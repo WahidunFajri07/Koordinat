@@ -1,0 +1,20 @@
+# Rekonsiliasi Data Pelanggan
+node_modules/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.egg-info/
+dist/
+build/
+.vite/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+coverage.xml
+*.coverage
+uploads/
+*.log
+.DS_Store
+Thumbs.db

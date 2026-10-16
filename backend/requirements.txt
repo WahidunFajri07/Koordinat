@@ -1,0 +1,48 @@
+# Core
+fastapi[standard]==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+alembic==1.14.1
+geoalchemy2==0.15.2
+
+# Celery / Queue
+celery[rabbitmq]==5.4.0
+redis==5.2.1
+
+# Auth
+python-jose[cryptography]==3.3.0
+httpx==0.28.1
+
+# File handling
+python-multipart==0.0.20
+openpyxl==3.1.5
+pandas==2.2.3
+
+# Encryption
+cryptography==44.0.0
+
+# Fuzzy matching (hook, inactive in MVP)
+rapidfuzz==3.11.0
+
+# Utilities
+python-dotenv==1.0.1
+orjson==3.10.13
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+pytest-benchmark==5.1.0
+httpx==0.28.1
+factory-boy==3.3.1
+faker==33.3.1
+
+# Linting
+ruff==0.8.6
+mypy==1.14.1

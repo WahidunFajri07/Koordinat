@@ -1,0 +1,17 @@
+{
+  "name": "rekonsiliasi-pln-root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistem Rekonsiliasi Data Pelanggan PLN — Root Workspace",
+  "scripts": {
+    "start": "npm --prefix frontend run dev",
+    "dev": "npm --prefix frontend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "backend\\.venv\\Scripts\\python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix frontend run test",
+    "test:frontend": "npm --prefix frontend run test",
+    "test:backend": "backend\\.venv\\Scripts\\python -m pytest backend/tests/ -v",
+    "lint": "npm --prefix frontend run lint"
+  }
+}
