@@ -25,8 +25,10 @@ export function UploadZone({
         return 'Unggah Data Master Pelanggan';
       case 'pdpj':
         return 'Unggah Data PDPJ (Terverifikasi)';
-      case 'kosong':
-        return 'Unggah Data Koordinat Kosong';
+      case 'idpel_kosong':
+        return 'Unggah Data IDPEL Kosong';
+      case 'idpel_tidak_ditemukan':
+        return 'Unggah Data IDPEL Tidak Ditemukan';
     }
   };
 
@@ -36,8 +38,10 @@ export function UploadZone({
         return 'Gabungan pascabayar dan prabayar dengan kolom IDPEL serta koordinat.';
       case 'pdpj':
         return 'Daftar IDPEL yang sudah valid dan akan dieksklusi dari master.';
-      case 'kosong':
-        return 'File survei lapangan berisi titik koordinat tanpa IDPEL untuk dicocokkan.';
+      case 'idpel_kosong':
+        return 'File survei lapangan berisi titik koordinat tanpa IDPEL (hanya kolom koordinat).';
+      case 'idpel_tidak_ditemukan':
+        return 'File survei lapangan berisi IDPEL dan titik koordinat (IDPEL ada tapi tidak ada di Master).';
     }
   };
 

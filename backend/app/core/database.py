@@ -2,7 +2,9 @@
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 
@@ -30,3 +32,22 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+# Synchronous engine/session for Celery background tasks.
+# Celery worker processes are synchronous and must not depend on FastAPI's
+# async dependency `get_db()`. We use the sync database URL and psycopg2-binary
+# (already declared in requirements.txt).
+sync_engine = create_engine(
+    settings.database_url_sync,
+    echo=settings.app_debug,
+    pool_pre_ping=True,
+)
+
+SyncSessionLocal = sessionmaker(
+    bind=sync_engine,
+    class_=Session,
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False,
+)

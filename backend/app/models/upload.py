@@ -17,6 +17,7 @@ class UploadFile(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "upload_files"
 
     file_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="master|pdpj|kosong")
+    sub_type: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="idpel_kosong|idpel_tidak_ditemukan")
     original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
     stored_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     file_hash_sha256: Mapped[str] = mapped_column(

@@ -27,32 +27,28 @@ import type { CandidateMatch } from '../candidates/types';
 import type { ProcessJobRecord } from '../history/ProcessHistoryView';
 import { useAuth } from '../auth/AuthContext';
 
-// Sample synthetic data fallback strings embedded for instant 1-click testing
+// Sample synthetic data synchronized with candidat mockData - Jakarta Menteng region
 const SAMPLE_MASTER_CSV = `idpel,koordinat_x,koordinat_y,tglbaca,jenis_pel
-531000000000,106.650065,-6.649032,05,PASCA
-531000000001,110.918827,-7.398221,12,PRABAYAR
-531000000002,107.021633,-6.194077,05,PASCA
-531000000003,107.811828,-7.746365,20,PRABAYAR
-531000000004,107.693026,-7.752235,15,PASCA
-531000000005,106.849201,-6.211044,05,PASCA
-531000000006,107.609810,-6.914744,12,PRABAYAR
-531000000007,106.812340,-6.223401,20,PASCA
-531000000008,112.752088,-7.257472,15,PRABAYAR
-531000000009,106.827153,-6.175392,05,PASCA`;
+531000000471,106.845600,-6.208800,05,PASCA
+531000000389,106.849320,-6.211180,12,PASCA
+531000000607,106.841225,-6.205435,05,PASCA
+531000000877,106.848500,-6.202300,20,PASCA
+531000000930,106.843525,-6.214530,15,PASCA
+531000000135,106.851000,-6.218500,10,PRABAYAR`;
 
 const SAMPLE_PDPJ_CSV = `NO_IDPEL_VALID
-531000000002
-531000000004
-531000000007
-531000000009`;
+531000000135`;
 
 const SAMPLE_KOSONG_CSV = `KOORDINAT_TITIK
-"-6.649040,106.650070"
-"-7.398230,110.918835"
-"-6.194085,107.021640"
-"-7.746370,107.811832"
+"-6.208800,106.845600"
 "-6.211050,106.849210"
-"-6.914750,107.609815"`;
+"-6.205400,106.841200"
+"-6.202300,106.848500"
+"-6.214500,106.843500"`;
+
+const SAMPLE_TIDAK_DITEMUKAN_CSV = `idpel,koordinat
+881000000101,"-6.218500,106.851000"
+881000000102,"-6.207200,106.854000"`;
 
 interface UploadManagerProps {
   onAllFilesReady?: (datasets: Record<FileType, FileUploadState | null>) => void;
@@ -70,11 +66,12 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
   const [isProcessing, setIsProcessing] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // File state dictionary for all 3 required files
+  // File state dictionary for all 4 required files
   const [fileStates, setFileStates] = useState<Record<FileType, FileUploadState | null>>({
     master: null,
     pdpj: null,
-    kosong: null,
+    idpel_kosong: null,
+    idpel_tidak_ditemukan: null,
   });
 
   const currentState = fileStates[selectedFileType];
@@ -155,7 +152,14 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch(`/api/v1/upload/${type}`, {
+      let endpoint = `/api/v1/upload/${type}`;
+      if (type === 'idpel_kosong') {
+        endpoint = '/api/v1/upload/kosong?sub_type=idpel_kosong';
+      } else if (type === 'idpel_tidak_ditemukan') {
+        endpoint = '/api/v1/upload/kosong?sub_type=idpel_tidak_ditemukan';
+      }
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${user.token}`,
@@ -187,9 +191,12 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
     if (type === 'pdpj') {
       content = SAMPLE_PDPJ_CSV;
       filename = 'pdpj_sample.csv';
-    } else if (type === 'kosong') {
+    } else if (type === 'idpel_kosong') {
       content = SAMPLE_KOSONG_CSV;
-      filename = 'kosong_sample.csv';
+      filename = 'idpel_kosong_sample.csv';
+    } else if (type === 'idpel_tidak_ditemukan') {
+      content = SAMPLE_TIDAK_DITEMUKAN_CSV;
+      filename = 'idpel_tidak_ditemukan_sample.csv';
     }
 
     const blob = new Blob([content], { type: 'text/csv' });
@@ -221,7 +228,11 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
     forceRun = false
   ): number => {
     const master = currentStates.master;
-    const kosong = currentStates.kosong;
+    const kosong = currentStates.idpel_kosong || currentStates.idpel_tidak_ditemukan;
+
+    // Validasi apakah sub-type sudah terisi jika kosong
+    if (!kosong) return 0;
+
     const pdpj = currentStates.pdpj;
 
     if (!master || !kosong) return 0;
@@ -277,10 +288,8 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
       });
 
       try {
-        if (bridged.length > 0) {
-          localStorage.setItem('pln_candidate_matches_v1', JSON.stringify(bridged));
-          window.dispatchEvent(new Event('pln-candidates-updated'));
-        }
+        localStorage.setItem('pln_candidate_matches_v1', JSON.stringify(bridged));
+        window.dispatchEvent(new Event('pln-candidates-updated'));
 
         const exactMatches = result.matches.filter((m) => m.distanceMeters === 0).length;
         const spatialMatches = result.matches.length - exactMatches;
@@ -297,12 +306,18 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
           exactMatches,
           spatialMatches,
           unmatchedKosong: result.stats.unmatchedKosongCount,
+          validatedKosong: bridged.filter((m) => m.status === 'valid').length,
           status: 'completed',
           initiatedBy: user.email || 'analis@pln.co.id',
           masterFileName: master.originalFilename,
           pdpjFileName: pdpj?.originalFilename || '-',
-          kosongFileName: kosong.originalFilename,
+          kosongFileName: `${kosong.originalFilename} (${kosong.fileType})`,
         };
+
+        // Link every candidate to its source process so history can count validated points per process
+        for (const m of bridged) {
+          m.processId = newJob.processCode;
+        }
 
         const existingRaw = localStorage.getItem('pln_process_history_v1');
         let existingList: ProcessJobRecord[] = [];
@@ -386,7 +401,7 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
       )}
 
       {/* Top File Type Stepper / Selector */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {/* Step 1: Master */}
         <button
           onClick={() => setSelectedFileType('master')}
@@ -447,11 +462,11 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
           </p>
         </button>
 
-        {/* Step 3: Kosong */}
+        {/* Step 3: IDPEL Kosong */}
         <button
-          onClick={() => setSelectedFileType('kosong')}
+          onClick={() => setSelectedFileType('idpel_kosong')}
           className={`text-left p-4 rounded-xl border transition-all ${
-            selectedFileType === 'kosong'
+            selectedFileType === 'idpel_kosong'
               ? 'bg-amber-50/60 dark:bg-slate-800/90 border-amber-500 shadow-md shadow-amber-500/10'
               : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
@@ -459,9 +474,9 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold tracking-wider uppercase text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5" />
-              3. Koordinat Kosong
+              3. IDPEL Kosong
             </span>
-            {fileStates.kosong ? (
+            {fileStates.idpel_kosong ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1 font-semibold">
                 <CheckCircle2 className="w-3 h-3" /> Siap
               </span>
@@ -471,9 +486,39 @@ export function UploadManager({ onAllFilesReady, onNavigateToMatching }: UploadM
               </span>
             )}
           </div>
-          <div className="text-sm font-bold text-slate-900 dark:text-white">Target Pencocokan</div>
+          <div className="text-sm font-bold text-slate-900 dark:text-white">IDPEL Kosong</div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
-            {fileStates.kosong ? fileStates.kosong.originalFilename : 'Survei koordinat tanpa IDPEL'}
+            {fileStates.idpel_kosong ? fileStates.idpel_kosong.originalFilename : 'Survei koordinat saja'}
+          </p>
+        </button>
+
+        {/* Step 4: IDPEL Tidak Ditemukan */}
+        <button
+          onClick={() => setSelectedFileType('idpel_tidak_ditemukan')}
+          className={`text-left p-4 rounded-xl border transition-all ${
+            selectedFileType === 'idpel_tidak_ditemukan'
+              ? 'bg-amber-50/60 dark:bg-slate-800/90 border-amber-500 shadow-md shadow-amber-500/10'
+              : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold tracking-wider uppercase text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5" />
+              4. IDPEL Tidak Ditemukan
+            </span>
+            {fileStates.idpel_tidak_ditemukan ? (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1 font-semibold">
+                <CheckCircle2 className="w-3 h-3" /> Siap
+              </span>
+            ) : (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                Belum Ada
+              </span>
+            )}
+          </div>
+          <div className="text-sm font-bold text-slate-900 dark:text-white">IDPEL Tidak Ditemukan</div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+            {fileStates.idpel_tidak_ditemukan ? fileStates.idpel_tidak_ditemukan.originalFilename : 'IDPEL + Koordinat'}
           </p>
         </button>
       </div>

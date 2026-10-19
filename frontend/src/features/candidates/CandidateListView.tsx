@@ -1,20 +1,23 @@
 import { useState, useMemo, useEffect } from 'react';
-import { 
-  CheckCircle2, 
-  XCircle, 
-  Search, 
-  Sliders, 
-  MapPin, 
-  Check, 
+import {
+  CheckCircle2,
+  XCircle,
+  Search,
+  Sliders,
+  MapPin,
+  Check,
   Download,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  Flag,
+  PlusCircle
 } from 'lucide-react';
 import { CandidateMatch, CandidateFilters } from './types';
 import { INITIAL_CANDIDATE_MATCHES } from './mockData';
 import { SpatialMap } from './SpatialMap';
 import { LeafletSpatialMap } from './LeafletSpatialMap';
 import { useAuth } from '../auth/AuthContext';
+import { candidateApi, processApi } from '../api/apiClient';
 
 function sanitizeCandidateMatches(list: CandidateMatch[]): CandidateMatch[] {
   return list.map((m) => {
@@ -71,6 +74,181 @@ export function CandidateListView() {
     return loaded[0]?.id || '';
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isProcessingFinalize, setIsProcessingFinalize] = useState(false);
+  const [showConfirmFinalize, setShowConfirmFinalize] = useState(false);
+  const [isProcessingNewProcess, setIsProcessingNewProcess] = useState(false);
+
+  const handleResetCandidates = () => {
+    const confirmed = window.confirm(
+      'Reset daftar kandidat aktif? Sesi pencocokan saat ini akan dikosongkan, tetapi riwayat proses, data Master, PDPJ, dan keputusan validasi terdahulu tetap tersimpan.'
+    );
+    if (!confirmed) return;
+
+    setMatches([]);
+    setSelectedMatchId('');
+    try {
+      localStorage.removeItem('pln_candidate_matches_v1');
+      window.dispatchEvent(new Event('pln-candidates-updated'));
+    } catch {
+      // ignore storage restrictions
+    }
+    showToast('Daftar kandidat direset. Siap untuk dataset berikutnya.');
+  };
+
+  const handleStartNewProcess = async () => {
+    if (!canAccess('match')) {
+      showToast('Akses Dibatasi: Peran Anda tidak memiliki izin untuk memulai proses baru.');
+      return;
+    }
+
+    setIsProcessingNewProcess(true);
+    let newProcessId: string | null = null;
+
+    // Try backend API first, fall back to localStorage-only mode
+    try {
+      const created = await processApi.createNewProcess(
+        'master_candidates.csv',
+        'idpel_kosong.csv',
+        null,
+        user.token
+      );
+      newProcessId = String(created?.id || created?.process_id || '');
+    } catch {
+      newProcessId = `prc-${Date.now()}`;
+    }
+
+    if (!newProcessId) {
+      showToast('Gagal memulai proses baru.');
+      setIsProcessingNewProcess(false);
+      return;
+    }
+
+    const total = matches.length;
+    const validCount = matches.filter((m) => m.status === 'valid').length;
+    const invalidCount = matches.filter((m) => m.status === 'invalid').length;
+    const unresolvedCount = matches.filter((m) => m.status === 'unresolved').length;
+
+    // Link all current candidates to this process and persist
+    setMatches((prev) => {
+      const next = prev.map((m) => ({ ...m, processId: newProcessId }));
+      try {
+        localStorage.setItem('pln_candidate_matches_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+
+    try {
+      const raw = localStorage.getItem('pln_process_history_v1');
+      let existingList: any[] = [];
+      try { if (raw) existingList = JSON.parse(raw); } catch { existingList = []; }
+      const newJob: any = {
+        id: newProcessId,
+        processCode: `PRC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
+        startedAt: new Date().toLocaleString('id-ID'),
+        durationSeconds: 0,
+        toleranceMeters: 5,
+        totalKosong: total,
+        matchedKosong: validCount,
+        exactMatches: 0,
+        spatialMatches: 0,
+        unmatchedKosong: unresolvedCount + invalidCount,
+        validatedKosong: validCount,
+        status: 'running',
+        initiatedBy: user.email || 'analis@pln.co.id',
+        masterFileName: 'master_candidates.csv',
+        pdpjFileName: '-',
+        kosongFileName: 'idpel_kosong.csv',
+      };
+      localStorage.setItem('pln_process_history_v1', JSON.stringify([newJob, ...existingList]));
+    } catch {
+      // ignore
+    }
+    window.dispatchEvent(new Event('pln-history-updated'));
+
+    setIsProcessingNewProcess(false);
+    showToast(`Proses baru ${newProcessId} dimulai. Kandidat aktif terhubung ke proses ini.`);
+  };
+
+  const handleFinalizeReview = async () => {
+    if (!canAccess('validate')) {
+      showToast('Akses Dibatasi: Peran Anda tidak memiliki izin untuk menyelesaikan review.');
+      return;
+    }
+
+    const validCount = matches.filter((m) => m.status === 'valid').length;
+    const unresolvedCount = matches.filter((m) => m.status === 'unresolved').length;
+    const invalidCount = matches.filter((m) => m.status === 'invalid').length;
+
+    const activeProcessId = matches.find((m) => m.processId)?.processId || null;
+
+    setIsProcessingFinalize(true);
+
+    // Persist every candidate decision to backend API first, localStorage fallback
+    for (const m of matches) {
+      if (m.status === 'valid' || m.status === 'invalid') {
+        try {
+          await candidateApi.validateCandidate(m.id, m.status, user.token);
+        } catch {
+          // localStorage state already reflects decisions; skip API write
+        }
+      }
+    }
+
+    // Finalize process on backend
+    if (activeProcessId) {
+      try {
+        await processApi.finalizeProcess(
+          activeProcessId,
+          `Review selesai: ${validCount} valid, ${unresolvedCount} unresolved, ${invalidCount} invalid`,
+          user.token
+        );
+      } catch {
+        // backend unavailable; keep local-only history
+      }
+
+      // Keep local history in sync even when backend finalization succeeds.
+      try {
+        const raw = localStorage.getItem('pln_process_history_v1');
+        let list: any[] = [];
+        try { if (raw) list = JSON.parse(raw); } catch { list = []; }
+        const idx = list.findIndex((j) => j.id === activeProcessId);
+        if (idx >= 0) {
+          list[idx] = { ...list[idx], status: 'completed', completed_at: new Date().toISOString(), notes: `Review selesai: ${validCount} valid, ${invalidCount} invalid` };
+        } else {
+          list.push({
+            id: activeProcessId,
+            processCode: `PRC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
+            startedAt: new Date().toLocaleString('id-ID'),
+            durationSeconds: 0,
+            toleranceMeters: 5,
+            totalKosong: matches.length,
+            matchedKosong: validCount,
+            exactMatches: 0,
+            spatialMatches: 0,
+            unmatchedKosong: unresolvedCount + invalidCount,
+            validatedKosong: validCount,
+            status: 'completed',
+            initiatedBy: user.email || 'analis@pln.co.id',
+            masterFileName: 'master_candidates.csv',
+            pdpjFileName: '-',
+            kosongFileName: 'idpel_kosong.csv',
+            completed_at: new Date().toISOString(),
+            notes: `Review selesai: ${validCount} valid, ${invalidCount} invalid`,
+          });
+        }
+        localStorage.setItem('pln_process_history_v1', JSON.stringify(list));
+        window.dispatchEvent(new Event('pln-history-updated'));
+      } catch {
+        // ignore
+      }
+    }
+
+    setIsProcessingFinalize(false);
+    setShowConfirmFinalize(false);
+    showToast(`Review selesai: ${validCount} valid, ${unresolvedCount} belum direview, ${invalidCount} ditolak. Proses finalisasi.`);
+  };
 
   // Default max distance set to 5 meters per business requirement
   const [filters, setFilters] = useState<CandidateFilters>({
@@ -146,34 +324,63 @@ export function CandidateListView() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleValidate = (id: string, status: 'valid' | 'invalid') => {
+  const handleValidate = async (id: string, status: 'valid' | 'invalid') => {
     if (!canAccess('validate')) {
       showToast('Akses Dibatasi: Peran Anda tidak memiliki izin untuk memvalidasi kandidat.');
       return;
     }
 
-    setMatches((prev) => {
-      const next = prev.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              status,
-              validatedBy: user.email,
-              validatedAt: new Date().toLocaleString('id-ID'),
-            }
-          : m
-      );
-      try {
-        localStorage.setItem('pln_candidate_matches_v1', JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-
     const target = matches.find((m) => m.id === id);
     const label = status === 'valid' ? 'Validasi Disetujui' : 'Kandidat Ditolak';
-    showToast(`${label} untuk IDPEL ${target?.masterIdpel}`);
+
+    // Try backend API first
+    try {
+      await candidateApi.validateCandidate(id, status, user.token);
+
+      // Update local state after successful API call
+      setMatches((prev) => {
+        const next = prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                status,
+                validatedBy: user.email,
+                validatedAt: new Date().toLocaleString('id-ID'),
+              }
+            : m
+        );
+        try {
+          localStorage.setItem('pln_candidate_matches_v1', JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+
+      showToast(`${label} untuk IDPEL ${target?.masterIdpel}`);
+    } catch (err) {
+      // Fallback to localStorage-only mode if backend unavailable
+      setMatches((prev) => {
+        const next = prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                status,
+                validatedBy: user.email,
+                validatedAt: new Date().toLocaleString('id-ID'),
+              }
+            : m
+        );
+        try {
+          localStorage.setItem('pln_candidate_matches_v1', JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+
+      showToast(`${label} untuk IDPEL ${target?.masterIdpel} (mode offline)`);
+    }
   };
 
   const handleExportValidatedCsv = () => {
@@ -505,6 +712,53 @@ export function CandidateListView() {
               </button>
 
               <button
+                onClick={handleResetCandidates}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 border border-rose-300 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-semibold rounded-xl transition-all shadow-sm"
+                title="Kosongkan daftar kandidat aktif untuk dataset berikutnya"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset Daftar Kandidat</span>
+              </button>
+
+              <button
+                disabled={isProcessingNewProcess}
+                onClick={handleStartNewProcess}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 border border-purple-300 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-xs font-semibold rounded-xl transition-all shadow-sm"
+                title="Mulai proses pencocokan baru tanpa menghapus riwayat"
+              >
+                {isProcessingNewProcess ? (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Memulai...</span>
+                  </>
+                ) : (
+                  <>
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>Mulai Proses Baru</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                disabled={isProcessingFinalize || matches.length === 0}
+                onClick={() => setShowConfirmFinalize(true)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold rounded-xl transition-all shadow-sm"
+                title="Finalisasi review dan simpan keputusan ke riwayat proses"
+              >
+                {isProcessingFinalize ? (
+                  <>
+                    <Flag className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menyelesaikan...</span>
+                  </>
+                ) : (
+                  <>
+                    <Flag className="w-3.5 h-3.5" />
+                    <span>Selesaikan Review</span>
+                  </>
+                )}
+              </button>
+
+              <button
                 onClick={handleExportValidatedCsv}
                 className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-cyan-700 dark:text-cyan-300 text-xs font-semibold rounded-xl transition-all shadow-sm"
               >
@@ -588,6 +842,66 @@ export function CandidateListView() {
           )}
         </div>
       </div>
+
+      {/* Finalize Confirmation Dialog */}
+      {showConfirmFinalize && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800/60 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl text-slate-900 dark:text-white">
+            <div className="flex items-center space-x-3 text-emerald-600 dark:text-emerald-400">
+              <div className="p-3 bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 rounded-xl">
+                <Flag className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Selesaikan Review?</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Semua keputusan validasi akan disimpan dan proses akan ditandai selesai. Data tidak akan dihapus.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-600 dark:text-slate-400">Valid</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-300">{stats.valid}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600 dark:text-slate-400">Belum Direview</span>
+                <span className="font-bold text-amber-700 dark:text-amber-300">{stats.unresolved}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600 dark:text-slate-400">Ditolak</span>
+                <span className="font-bold text-rose-700 dark:text-rose-300">{stats.invalid}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setShowConfirmFinalize(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                disabled={isProcessingFinalize}
+                onClick={handleFinalizeReview}
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors shadow-md shadow-emerald-600/20 disabled:opacity-50"
+              >
+                {isProcessingFinalize ? (
+                  <>
+                    <Flag className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menyelesaikan...</span>
+                  </>
+                ) : (
+                  <>
+                    <Flag className="w-3.5 h-3.5" />
+                    <span>Ya, Selesaikan Review</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

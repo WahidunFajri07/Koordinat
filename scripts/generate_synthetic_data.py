@@ -13,9 +13,9 @@ import os
 import random
 from pathlib import Path
 
-# Indonesia (Java focus for high customer density)
-LAT_MIN, LAT_MAX = -7.8, -6.0
-LON_MIN, LON_MAX = 106.5, 112.5
+# Indonesia nationwide coordinate bounds (Sabang to Merauke)
+LAT_MIN, LAT_MAX = -11.0, 6.0
+LON_MIN, LON_MAX = 95.0, 141.0
 
 
 def generate_noisy_idpel(base_num: int, anomaly_type: str) -> str:

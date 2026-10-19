@@ -16,10 +16,17 @@ export function formatBytes(bytes: number, decimals = 1): string {
  * Calculate SHA-256 hash using the native browser Web Crypto API.
  */
 export async function computeFileHashSha256(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  try {
+    if (window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch {
+    // fallback
+  }
+  return `fallback-hash-${file.name}-${file.size}-${file.lastModified}`;
 }
 
 /**
@@ -165,8 +172,8 @@ export function autoDetectColumnRole(
     }
   }
 
-  // 6. ID Pelanggan (IDPEL) check
-  if (fileType !== 'kosong') {
+  // 6. ID Pelanggan (IDPEL) check - allowed for master, pdpj, idpel_tidak_ditemukan
+  if (fileType === 'master' || fileType === 'pdpj' || fileType === 'idpel_tidak_ditemukan') {
     if (!norm.includes('nama')) {
       const idpelKeywords = [
         'idpel',
@@ -241,14 +248,17 @@ export function validateColumnMapping(
     if (!hasIdpel) {
       errors.push('File PDPJ wajib memiliki satu kolom ID Pelanggan (IDPEL) yang akan dieksklusi.');
     }
-  } else if (fileType === 'kosong') {
+  } else if (fileType === 'idpel_kosong' || fileType === 'idpel_tidak_ditemukan') {
     if (!hasCombined && (!hasLat || !hasLon)) {
       errors.push(
         'File Koordinat Kosong wajib memiliki koordinat (Latitude & Longitude terpisah atau Koordinat Gabungan).'
       );
     }
-    if (hasIdpel) {
-      warnings.push('File Koordinat Kosong biasanya tidak memiliki IDPEL. Kolom IDPEL akan diabaikan saat pencocokan spasial.');
+    if (fileType === 'idpel_kosong' && hasIdpel) {
+      warnings.push('File IDPEL Kosong seharusnya tidak memiliki IDPEL. Kolom IDPEL akan diabaikan.');
+    }
+    if (fileType === 'idpel_tidak_ditemukan' && !hasIdpel) {
+      errors.push('File IDPEL Tidak Ditemukan wajib memiliki satu kolom ID Pelanggan (IDPEL).');
     }
   }
 

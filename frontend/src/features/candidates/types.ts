@@ -13,6 +13,7 @@ export interface CandidateMatch {
   matchType: MatchType;
   rank: number;
   status: MatchStatus;
+  processId?: string;
   tariff: string;
   power: string;
   validatedBy?: string;

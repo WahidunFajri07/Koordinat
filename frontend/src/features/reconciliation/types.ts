@@ -28,6 +28,7 @@ export interface KoordinatKosongRecord {
   rowIndex: number;
   latitude: number;
   longitude: number;
+  idpel?: string; // Tambahkan field opsional
   /** All raw columns preserved for display */
   raw: Record<string, string>;
 }

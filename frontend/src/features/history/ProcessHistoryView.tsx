@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  History, 
-  Download, 
-  CheckCircle2, 
-  Clock, 
-  Percent, 
-  Layers, 
-  Search, 
-  Eye, 
+import {
+  History,
+  Download,
+  CheckCircle2,
+  Clock,
+  Percent,
+  Layers,
+  Search,
+  Eye,
   X,
   FileSpreadsheet,
   Trash2,
@@ -17,6 +17,8 @@ import {
   ArrowRight
 } from 'lucide-react';
 import type { CandidateMatch } from '../candidates/types';
+import { useAuth } from '../auth/AuthContext';
+import { processApi } from '../api/apiClient';
 
 export interface ProcessJobRecord {
   id: string;
@@ -29,6 +31,7 @@ export interface ProcessJobRecord {
   exactMatches: number;
   spatialMatches: number;
   unmatchedKosong: number;
+  validatedKosong: number;
   status: 'completed' | 'running' | 'failed';
   initiatedBy: string;
   masterFileName: string;
@@ -39,54 +42,21 @@ export interface ProcessJobRecord {
 const SAMPLE_PROCESS_JOBS: ProcessJobRecord[] = [
   {
     id: 'prc-01',
-    processCode: 'PRC-20261015-001',
-    startedAt: '2026-10-15 09:15:30',
-    durationSeconds: 1.45,
-    toleranceMeters: 25.0,
-    totalKosong: 300,
-    matchedKosong: 262,
-    exactMatches: 140,
-    spatialMatches: 122,
-    unmatchedKosong: 38,
+    processCode: 'PRC-20261016-001',
+    startedAt: '2026-10-16 10:00:00',
+    durationSeconds: 0.45,
+    toleranceMeters: 5.0,
+    totalKosong: 5,
+    matchedKosong: 4,
+    exactMatches: 2,
+    spatialMatches: 2,
+    unmatchedKosong: 1,
     status: 'completed',
     initiatedBy: 'analis@pln.co.id',
     masterFileName: 'master_sample.csv',
     pdpjFileName: 'pdpj_sample.csv',
-    kosongFileName: 'kosong_sample.csv',
-  },
-  {
-    id: 'prc-02',
-    processCode: 'PRC-20261014-002',
-    startedAt: '2026-10-14 14:22:10',
-    durationSeconds: 2.10,
-    toleranceMeters: 20.0,
-    totalKosong: 150,
-    matchedKosong: 128,
-    exactMatches: 75,
-    spatialMatches: 53,
-    unmatchedKosong: 22,
-    status: 'completed',
-    initiatedBy: 'admin@pln.co.id',
-    masterFileName: 'master_oktober_v1.csv',
-    pdpjFileName: 'pdpj_valid_okt.xlsx',
-    kosongFileName: 'survei_lapangan_02.csv',
-  },
-  {
-    id: 'prc-03',
-    processCode: 'PRC-20261013-001',
-    startedAt: '2026-10-13 11:05:00',
-    durationSeconds: 0.95,
-    toleranceMeters: 15.0,
-    totalKosong: 80,
-    matchedKosong: 65,
-    exactMatches: 42,
-    spatialMatches: 23,
-    unmatchedKosong: 15,
-    status: 'completed',
-    initiatedBy: 'analis@pln.co.id',
-    masterFileName: 'master_sample.csv',
-    pdpjFileName: 'pdpj_sample.csv',
-    kosongFileName: 'kosong_sample.csv',
+    kosongFileName: 'idpel_kosong_sample.csv',
+    validatedKosong: 0,
   },
 ];
 
@@ -126,6 +96,7 @@ interface ProcessHistoryViewProps {
 }
 
 export function ProcessHistoryView({ onNavigateToCandidates }: ProcessHistoryViewProps) {
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<ProcessJobRecord[]>(loadJobsFromStorage);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJob, setSelectedJob] = useState<ProcessJobRecord | null>(null);
@@ -137,7 +108,48 @@ export function ProcessHistoryView({ onNavigateToCandidates }: ProcessHistoryVie
     saveJobsToStorage(jobs);
   }, [jobs]);
 
-  // Listen for history updates from UploadManager or storage events
+  // Fetch history from backend on mount with localStorage fallback
+  useEffect(() => {
+    let mounted = true;
+
+    const loadHistory = async () => {
+      try {
+        const history = await processApi.getProcessHistory(user.token);
+        if (!mounted) return;
+        setJobs(
+          history.map((h) => ({
+            id: h.id,
+            processCode: h.master_filename, // backend may not store processCode; use filename as code
+            startedAt: new Date(h.created_at).toLocaleString('id-ID'),
+            durationSeconds: h.completed_at && h.created_at
+              ? (new Date(h.completed_at).getTime() - new Date(h.created_at).getTime()) / 1000
+              : 0,
+            toleranceMeters: 5,
+            totalKosong: h.total_candidates,
+            matchedKosong: h.validated_kosong,
+            exactMatches: 0,
+            spatialMatches: 0,
+            unmatchedKosong: Math.max(0, h.total_candidates - h.validated_kosong),
+            validatedKosong: h.validated_kosong,
+            status: h.status === 'completed' ? 'completed' : 'running',
+            initiatedBy: h.initiated_by,
+            masterFileName: h.master_filename,
+            pdpjFileName: h.pdpj_filename || '-',
+            kosongFileName: h.kosong_filename,
+          }))
+        );
+      } catch {
+        // Backend unavailable: keep localStorage jobs
+      }
+    };
+
+    loadHistory();
+    return () => {
+      mounted = false;
+    };
+  }, [user.token]);
+
+  // Listen for history updates from UploadManager or CandidateListView local writes
   useEffect(() => {
     const handleHistoryUpdated = () => {
       setJobs(loadJobsFromStorage());
@@ -203,9 +215,15 @@ export function ProcessHistoryView({ onNavigateToCandidates }: ProcessHistoryVie
     );
   }, [jobs, searchQuery]);
 
-  const totalProcessed = jobs.reduce((acc, j) => acc + j.totalKosong, 0);
-  const totalMatched = jobs.reduce((acc, j) => acc + j.matchedKosong, 0);
-  const avgMatchRate = totalProcessed > 0 ? ((totalMatched / totalProcessed) * 100).toFixed(1) : '0';
+  // Statistik aktual dari record proses dan kandidat validasi yang tersimpan
+  const completedJobs = jobs.filter((j) => j.status === 'completed');
+  const totalProcessed = completedJobs.reduce((acc, j) => acc + (j.totalKosong || 0), 0);
+  const totalValidated = completedJobs.reduce((acc, j) => acc + (j.validatedKosong || 0), 0);
+  const avgMatchRate = totalProcessed > 0 ? ((totalValidated / totalProcessed) * 100).toFixed(1) : '0.0';
+  const avgDuration =
+    completedJobs.length > 0
+      ? (completedJobs.reduce((acc, j) => acc + j.durationSeconds, 0) / completedJobs.length).toFixed(1)
+      : '0.0';
 
   // Helper to get real candidate matches from localStorage
   const getActiveCandidates = (): CandidateMatch[] => {
@@ -332,7 +350,7 @@ PRC-20261015-001,531000000930,-6.649032,106.650065,-6.649060,106.650085,3.70,TER
             <Layers className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
             Total Proses Selesai
           </span>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{jobs.length} Kali</div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{completedJobs.length} Kali</div>
           <span className="text-[10px] text-slate-400 dark:text-slate-500">Pipeline PostGIS ST_DWithin</span>
         </div>
 
@@ -341,8 +359,8 @@ PRC-20261015-001,531000000930,-6.649032,106.650065,-6.649060,106.650085,3.70,TER
             <CheckCircle2 className="w-3.5 h-3.5" />
             Titik Berhasil Cocok
           </span>
-          <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{totalMatched} Titik</div>
-          <span className="text-[10px] text-slate-400 dark:text-slate-500">Exact & Toleransi 25m</span>
+          <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{totalValidated} Titik</div>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">Konfirmasi valid dari petugas</span>
         </div>
 
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
@@ -359,8 +377,8 @@ PRC-20261015-001,531000000930,-6.649032,106.650065,-6.649060,106.650085,3.70,TER
             <Clock className="w-3.5 h-3.5" />
             Rata-rata Durasi
           </span>
-          <div className="text-2xl font-bold text-amber-600 dark:text-amber-300 mt-1">1.2 Detik</div>
-          <span className="text-[10px] text-slate-400 dark:text-slate-500">Optimasi PostGIS Spatial Index</span>
+          <div className="text-2xl font-bold text-amber-600 dark:text-amber-300 mt-1">{avgDuration} Detik</div>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">Proses selesai, gagal diabaikan</span>
         </div>
       </div>
 

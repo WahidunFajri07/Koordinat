@@ -12,6 +12,7 @@ class UploadResponse(BaseModel):
 
     upload_id: uuid.UUID
     file_type: str = Field(..., description="master | pdpj | kosong")
+    sub_type: str | None = Field(None, description="idpel_kosong | idpel_tidak_ditemukan")
     original_filename: str
     file_hash_sha256: str
     is_duplicate: bool = False
@@ -39,6 +40,7 @@ class UploadFileDetailResponse(BaseModel):
 
     id: uuid.UUID
     file_type: str
+    sub_type: str | None = None
     original_filename: str
     file_hash_sha256: str
     column_mapping: dict[str, Any] | None = None

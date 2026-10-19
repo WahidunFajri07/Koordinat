@@ -1,11 +1,14 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import audit, upload
+from app.api.v1.endpoints import audit, upload, export, candidates, process
 
 api_router = APIRouter()
 
 api_router.include_router(audit.router, prefix="/audit-log", tags=["audit-log"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
+api_router.include_router(export.router, prefix="/export", tags=["export"])
+api_router.include_router(candidates.router, prefix="/candidates", tags=["candidates"])
+api_router.include_router(process.router, prefix="/process", tags=["process"])
 
 
 # Endpoint routers will be registered here as they are implemented:

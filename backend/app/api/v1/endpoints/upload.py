@@ -30,6 +30,7 @@ async def handle_upload(
     current_user: CurrentUser,
     db: AsyncSession,
     request: Request,
+    sub_type: str | None = None,
 ) -> UploadResponse:
     """Generic file upload handler validating size, saving, hashing, and generating preview."""
     if not file.filename:
@@ -100,6 +101,7 @@ async def handle_upload(
     db_file = DbUploadFile(
         id=upload_id,
         file_type=file_type,
+        sub_type=sub_type,
         original_filename=file.filename,
         stored_path=str(stored_path),
         file_hash_sha256=file_hash,
@@ -119,6 +121,7 @@ async def handle_upload(
         after_state={
             "filename": file.filename,
             "file_type": file_type,
+            "sub_type": sub_type,
             "file_hash": file_hash,
             "is_duplicate": is_duplicate,
         },
@@ -129,6 +132,7 @@ async def handle_upload(
     return UploadResponse(
         upload_id=upload_id,
         file_type=file_type,
+        sub_type=sub_type,
         original_filename=file.filename,
         file_hash_sha256=file_hash,
         is_duplicate=is_duplicate,
@@ -166,12 +170,18 @@ async def upload_pdpj_file(
 @router.post("/kosong", response_model=UploadResponse)
 async def upload_kosong_file(
     request: Request,
+    sub_type: str = "idpel_kosong",
     file: FastApiUploadFile = File(...),
     current_user: CurrentUser = Depends(require_role("analis", "admin")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
-    """Upload Koordinat Kosong dataset containing coordinate points without IDPEL."""
-    return await handle_upload("kosong", file, current_user, db, request)
+    """Upload Koordinat Kosong dataset containing coordinate points without IDPEL or with unfound IDPEL."""
+    if sub_type not in ("idpel_kosong", "idpel_tidak_ditemukan"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Subtipe harus 'idpel_kosong' atau 'idpel_tidak_ditemukan'",
+        )
+    return await handle_upload("kosong", file, current_user, db, request, sub_type=sub_type)
 
 
 @router.post("/{upload_id}/mapping")

@@ -1,4 +1,4 @@
-export type FileType = 'master' | 'pdpj' | 'kosong';
+export type FileType = 'master' | 'pdpj' | 'idpel_kosong' | 'idpel_tidak_ditemukan';
 
 export type ColumnRole = 
   | 'idpel' 
