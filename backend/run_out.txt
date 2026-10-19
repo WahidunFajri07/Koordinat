@@ -1,0 +1,17 @@
+﻿python : ImportError while loading conftest 'D:\Documents\PKL - PLN\PROJECT\PLN\Koordinat\backend\tests\conftest.py'.
+At line:1 char:302
++ ... tch {} } }; python -m pytest tests/test_phase3_endpoints.py -q > run_ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ImportError whi...s\conftest.py'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+tests\conftest.py:10: in <module>
+    from app.main import app
+app\main.py:9: in <module>
+    from app.api.v1.router import api_router
+app\api\v1\router.py:3: in <module>
+    from app.api.v1.endpoints import audit, upload, export, candidates, process
+app\api\v1\endpoints\export.py:12: in <module>
+    from app.services.pipeline import export_to_csv # Assuming it's here
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.services.pipeline'

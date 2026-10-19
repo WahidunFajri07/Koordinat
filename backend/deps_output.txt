@@ -1,0 +1,22 @@
+﻿python : ImportError while loading conftest 'D:\Documents\PKL - PLN\PROJECT\PLN\Koordinat\backend\tests\conftest.py'.
+At line:1 char:302
++ ... tch {} } }; python -m pytest tests/test_phase3_endpoints.py --co > de ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ImportError whi...s\conftest.py'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+tests\conftest.py:10: in <module>
+    from app.main import app
+app\main.py:9: in <module>
+    from app.api.v1.router import api_router
+app\api\v1\router.py:3: in <module>
+    from app.api.v1.endpoints import audit, upload, export, candidates, process
+app\api\v1\endpoints\audit.py:7: in <module>
+    from app.api.v1.deps.rbac import require_role
+app\api\v1\deps\rbac.py:7: in <module>
+    from app.api.v1.deps.auth import get_current_user
+app\api\v1\deps\auth.py:6: in <module>
+    from app.core.security import CurrentUser, decode_access_token
+app\core\security.py:5: in <module>
+    import jwt
+E   ModuleNotFoundError: No module named 'jwt'
